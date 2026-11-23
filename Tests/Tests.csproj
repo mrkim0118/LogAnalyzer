@@ -1,0 +1,10 @@
+﻿<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <OutputType>Exe</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <AssemblyName>Tests</AssemblyName><OutputPath>bin\$(Configuration)\</OutputPath><LangVersion>7.3</LangVersion><Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup><Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Drawing"/><Reference Include="System.Windows.Forms"/><Reference Include="System.IO.Compression"/><Reference Include="System.IO.Compression.FileSystem"/></ItemGroup>
+  <ItemGroup><Compile Include="Program.cs"/><Compile Include="UiTests.cs"/><Compile Include="..\LogData.cs" Link="LogData.cs"/><Compile Include="..\IniFile.cs" Link="IniFile.cs"/><Compile Include="..\TimingChart.cs" Link="TimingChart.cs"/><Compile Include="..\MainForm.cs" Link="MainForm.cs"/><Compile Include="..\MainForm.Designer.cs" Link="MainForm.Designer.cs"/><Compile Include="..\SettingsForm.cs" Link="SettingsForm.cs"/><Compile Include="..\KeywordForm.cs" Link="KeywordForm.cs"/></ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
+</Project>

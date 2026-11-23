@@ -1,0 +1,14 @@
+bin/
+obj/
+Tests/bin/
+Tests/obj/
+.vs/
+sample-logs/
+*.user
+*.suo
+
+artifacts/
+dist/
+backups/
+.tools/
+.installer-test/

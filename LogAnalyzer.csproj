@@ -1,0 +1,23 @@
+﻿<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{AA141AD6-CBEE-46DE-9238-E104093D2FAC}</ProjectGuid>
+    <OutputType>WinExe</OutputType><RootNamespace>LogAnalyzer</RootNamespace>
+    <AssemblyName>LogAnalyzer</AssemblyName><TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>7.3</LangVersion><AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <OutputPath>bin\$(Configuration)\</OutputPath><DebugType>pdbonly</DebugType><Optimize>true</Optimize>
+    <ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>assets\LogAnalyzer.ico</ApplicationIcon><Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <ItemGroup><Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Drawing"/><Reference Include="System.Windows.Forms"/></ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs"/><Compile Include="LogData.cs"/><Compile Include="IniFile.cs"/>
+    <Compile Include="MainForm.cs"><SubType>Form</SubType></Compile>
+    <Compile Include="MainForm.Designer.cs"><DependentUpon>MainForm.cs</DependentUpon></Compile>
+    <Compile Include="TimingChart.cs"><SubType>UserControl</SubType></Compile>
+    <Compile Include="SettingsForm.cs"><SubType>Form</SubType></Compile>
+    <Compile Include="KeywordForm.cs"><SubType>Form</SubType></Compile>
+  </ItemGroup>
+  <ItemGroup><None Include="app.manifest"/><None Include="App.config"/><Content Include="timing-keywords.ini"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content></ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
+</Project>
