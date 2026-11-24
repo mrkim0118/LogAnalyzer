@@ -83,8 +83,8 @@ namespace LogAnalyzer
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
-            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 108));
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
             toolbar.Controls.Add(new Label { Text = "로그 폴더", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = new Font(Font, FontStyle.Bold) }, 0, 0);
             m_txtFolder = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 4, 8, 4), AccessibleName = "로그 폴더 경로" };
             m_btnFolder = MakeButton("찾아보기", 114);
@@ -94,8 +94,10 @@ namespace LogAnalyzer
             m_btnReload.Tag = "accent";
             m_btnCancel = MakeButton("작업 취소", 94);
             m_btnCancel.Enabled = false;
-            m_btnSettings = MakeButton("로그 형식", 90);
-            m_chkDark = new ViewerToggle { Text = "다크 모드", Appearance = Appearance.Button, Height = UiButtonHeight, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(6, 4, 0, 4), IconCode = "\uE706" };
+            m_btnSettings = MakeButton("", 40);
+            m_btnSettings.AccessibleName = "로그 형식";
+            ((ViewerButton)m_btnSettings).IconCode = "\uE713";
+            m_chkDark = new ViewerToggle { Appearance = Appearance.Button, Width = 40, Height = UiButtonHeight, Anchor = AnchorStyles.Left, Margin = new Padding(3, 4, 3, 4), AccessibleName = "다크 모드", IconCode = "\uE708" };
             toolbar.Controls.Add(m_txtFolder, 1, 0);
             toolbar.Controls.Add(m_btnFolder, 2, 0);
             toolbar.Controls.Add(m_btnReload, 3, 0);
@@ -218,20 +220,22 @@ namespace LogAnalyzer
             search.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             m_lblSearchCount = Heading("검색 결과");
             TableLayoutPanel searchBar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 6, RowCount = 1, Margin = Padding.Empty, Tag = "heading" };
-            searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 158));
+            searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 176));
             searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92));
-            searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
+            searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
             searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
             searchBar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
             m_btnPopoutSearch = MakeButton("새 창", 70);
             m_txtSearch = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(3, 4, 8, 4), AccessibleName = "검색 문자열" };
-            m_chkCase = new CheckBox { Text = "대소문자", Dock = DockStyle.Fill, AutoSize = true, Tag = "heading" };
-            m_chkRegex = new CheckBox { Text = "정규식", Dock = DockStyle.Fill, AutoSize = true, Tag = "heading" };
+            m_txtSearch.HandleCreated += delegate { SendMessage(m_txtSearch.Handle, SetCueBanner, new IntPtr(1), "검색할 문자열 입력 (입력을 멈추면 자동 검색)"); };
+            m_chkCase = new ViewerToggle { Text = "Aa", Appearance = Appearance.Button, Width = 40, Height = UiButtonHeight, Anchor = AnchorStyles.Left, Margin = new Padding(3, 4, 3, 4), AccessibleName = "대소문자 구분" };
+            m_chkRegex = new ViewerToggle { Text = ".*", Appearance = Appearance.Button, Width = 40, Height = UiButtonHeight, Anchor = AnchorStyles.Left, Margin = new Padding(3, 4, 3, 4), AccessibleName = "정규식" };
             m_btnSearch = MakeButton("검색", 70); m_btnSearch.Tag = "accent";
             searchBar.Controls.AddRange(new Control[] { m_lblSearchCount, m_txtSearch, m_chkCase, m_chkRegex, m_btnSearch, m_btnPopoutSearch });
             search.Controls.Add(searchBar, 0, 0);
             m_gridSearch = MakeGrid("검색 결과");
+            m_gridSearch.EmptyText = SearchHint;
             AddPagePicker(search, m_gridSearch, m_searchPage);
             m_splitResults.Panel2.Controls.Add(search);
 
@@ -247,9 +251,34 @@ namespace LogAnalyzer
         }
 
         // 메인 창과 분리 창에 같은 프로세스/파일 선택 컨트롤을 구성한다.
-        private static TreeView MakeSourceTree()
+        private TreeView MakeSourceTree()
         {
-            return new TreeView { Dock = DockStyle.Fill, Margin = Padding.Empty, CheckBoxes = true, HideSelection = false, BorderStyle = BorderStyle.None, FullRowSelect = true, ItemHeight = 29, Indent = 16, ShowLines = false, AccessibleName = "프로세스 및 로그 파일", Tag = "sidebar" };
+            TreeView tree = new TreeView { Dock = DockStyle.Fill, Margin = Padding.Empty, CheckBoxes = true, HideSelection = false, BorderStyle = BorderStyle.None, FullRowSelect = true, ItemHeight = 29, Indent = 16, ShowLines = false, AccessibleName = "프로세스 및 로그 파일", Tag = "sidebar", DrawMode = TreeViewDrawMode.OwnerDrawText };
+            tree.DrawNode += DrawSourceNode;
+            return tree;
+        }
+
+        // 노드 이름부터 행 끝까지 배경을 칠하고, 오른쪽에 줄 수를 흐린 색으로 표시한다.
+        private void DrawSourceNode(object sender, DrawTreeNodeEventArgs e)
+        {
+            if (e.Bounds.IsEmpty) { return; }
+            TreeView tree = (TreeView)sender;
+            bool dark = tree.BackColor.GetBrightness() < 0.3F;
+            bool selected = (e.State & TreeNodeStates.Selected) != 0;
+            Color back = selected ? (dark ? Color.FromArgb(43, 68, 101) : Color.FromArgb(219, 235, 255)) : (e.Node.BackColor.IsEmpty ? tree.BackColor : e.Node.BackColor);
+            Color fore = e.Node.ForeColor.IsEmpty ? tree.ForeColor : e.Node.ForeColor;
+            if (selected) { fore = Theme.TextOn(back); }
+            Rectangle row = Rectangle.FromLTRB(e.Bounds.Left, e.Bounds.Top, tree.ClientSize.Width, e.Bounds.Bottom);
+            using (SolidBrush brush = new SolidBrush(back)) { e.Graphics.FillRectangle(brush, row); }
+            TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix;
+            TextRenderer.DrawText(e.Graphics, e.Node.Text, e.Node.NodeFont ?? tree.Font, e.Bounds, fore, flags);
+            LogSource source = e.Node.Tag as LogSource;
+            int lines = source == null ? m_entries.Count : source.Lines;
+            if (lines <= 0) { return; }
+            string text = lines.ToString("N0");
+            Rectangle area = Rectangle.FromLTRB(e.Bounds.Right + 8, e.Bounds.Top, tree.ClientSize.Width - 10, e.Bounds.Bottom);
+            if (area.Width < TextRenderer.MeasureText(e.Graphics, text, tree.Font, Size.Empty, flags).Width) { return; }
+            TextRenderer.DrawText(e.Graphics, text, tree.Font, area, Theme.Mix(back, fore, 0.6), flags | TextFormatFlags.Right);
         }
 
         // 일관된 조작 버튼의 크기와 여백을 설정한다.
@@ -261,7 +290,7 @@ namespace LogAnalyzer
         // 뷰어 제목을 같은 글꼴과 높이로 표시한다.
         private static Label Heading(string text)
         {
-            return new Label { Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Font = new Font("맑은 고딕", 11F, FontStyle.Bold), Padding = new Padding(6, 0, 0, 0), Tag = "heading" };
+            return new HeadingLabel { Text = text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, Font = new Font("맑은 고딕", 11F, FontStyle.Bold), Padding = new Padding(6, 0, 0, 0), Tag = "heading" };
         }
 
         // 대용량일 때만 페이지 번호와 이동 버튼을 표 아래에 표시한다.

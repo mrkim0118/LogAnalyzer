@@ -49,13 +49,27 @@ namespace LogAnalyzer
         private LogGrid m_textSelectionGrid;
         private LogEntry m_selectedTextEntry;
         private const int WheelMessage = 0x020A;
+        private string m_strSearchMark;
+        private bool m_bSearchMarkCase;
+        private Regex m_searchMarkPattern;
 
         // 일반 그리드와 대용량 가상 목록은 동일한 뷰어 패널과 로그 데이터를 사용한다.
         internal sealed class LogGrid : DataGridView
         {
             public readonly VirtualLogList LargeView = new VirtualLogList();
             // 일반 표에서 스크롤할 때 행을 버퍼에 그린다.
-            public LogGrid() { DoubleBuffered = true; }
+            public LogGrid() { DoubleBuffered = true; SetStyle(ControlStyles.ResizeRedraw, true); }
+            public string EmptyText;
+
+            // 행이 없을 때 빈 표 대신 다음에 할 일을 안내한다.
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                base.OnPaint(e);
+                if (RowCount > 0 || String.IsNullOrEmpty(EmptyText)) { return; }
+                Rectangle area = Rectangle.FromLTRB(0, ColumnHeadersVisible ? ColumnHeadersHeight : 0, ClientSize.Width, ClientSize.Height);
+                Color muted = Theme.Mix(BackgroundColor, DefaultCellStyle.ForeColor, 0.6);
+                TextRenderer.DrawText(e.Graphics, EmptyText, Font, area, muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            }
         }
 
         // 대용량 로그는 현재 페이지와 그 다음 화면에 필요한 행만 Windows 목록에 등록한다.
@@ -237,6 +251,7 @@ namespace LogAnalyzer
         {
             public string Process;
             public string FilePath;
+            public int Lines;
         }
 
         // 저장된 화면/로그 설정을 복원하고 사용자 조작을 실제 처리에 연결한다.
@@ -328,6 +343,10 @@ namespace LogAnalyzer
             m_filterTimer.Interval = 300;
             m_filterTimer.Tick += async delegate { m_filterTimer.Stop(); await RefreshView(); };
             m_toolTip.SetToolTip(m_chart, "휠: 확대/축소 · 드래그: 시간 이동 · 클릭: 원문 선택 · Shift+휠: 레인 이동");
+            m_toolTip.SetToolTip(m_btnSettings, "로그 형식");
+            m_toolTip.SetToolTip(m_chkDark, "다크 모드");
+            m_toolTip.SetToolTip(m_chkCase, "대소문자 구분");
+            m_toolTip.SetToolTip(m_chkRegex, "정규식");
             m_toolTip.SetToolTip(m_btnSaveKeywords, m_strKeywordPath);
             m_toolTip.SetToolTip(m_btnColor, "선택한 프로세스의 배경색");
             m_toolTip.SetToolTip(m_dtEnd, "지정한 끝 초의 로그까지 포함");
@@ -568,14 +587,27 @@ namespace LogAnalyzer
             m_treeSources.Nodes.Add(root);
             int index = 0;
             m_nListedFileCount = 0;
+            Dictionary<string, int> fileLines = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (LogEntry entry in m_entries)
+            {
+                int lines;
+                fileLines.TryGetValue(entry.FilePath, out lines);
+                fileLines[entry.FilePath] = lines + 1;
+            }
             foreach (IGrouping<string, LogEntry> group in fileRepresentatives.GroupBy(delegate(LogEntry entry) { return entry.Process; }).OrderBy(delegate(IGrouping<string, LogEntry> group) { return group.Key; }, StringComparer.OrdinalIgnoreCase))
             {
                 if (!m_settings.ProcessColors.ContainsKey(group.Key)) { m_settings.ProcessColors[group.Key] = m_arrDefaultColors[index % m_arrDefaultColors.Length]; }
                 index++;
-                TreeNode process = new TreeNode(group.Key) { Tag = new LogSource { Process = group.Key }, Checked = true };
+                LogSource processSource = new LogSource { Process = group.Key };
+                TreeNode process = new TreeNode(group.Key) { Tag = processSource, Checked = true };
                 root.Nodes.Add(process);
                 foreach (string file in group.Select(delegate(LogEntry entry) { return entry.FilePath; }).Distinct().OrderBy(delegate(string file) { return file; }, StringComparer.OrdinalIgnoreCase))
-                { m_nListedFileCount++; process.Nodes.Add(new TreeNode(Path.GetFileName(file)) { Tag = new LogSource { Process = group.Key, FilePath = file }, Checked = true }); }
+                {
+                    int lines;
+                    fileLines.TryGetValue(file, out lines);
+                    processSource.Lines += lines;
+                    m_nListedFileCount++; process.Nodes.Add(new TreeNode(Path.GetFileName(file)) { Tag = new LogSource { Process = group.Key, FilePath = file, Lines = lines }, Checked = true });
+                }
             }
             root.Expand();
             m_treeSources.SelectedNode = root;
@@ -792,8 +824,14 @@ namespace LogAnalyzer
                 if (selectedFile != null) { m_lblScope.Text = Path.GetFileName(selectedFile); }
                 m_lblScope.Text += " · " + m_visibleEntries.Count.ToString("N0") + "줄";
                 m_lblSearchCount.Text = "검색 결과 · " + m_searchEntries.Count.ToString("N0") + "건";
+                m_gridSearch.EmptyText = result.Item4 != null ? "정규식을 해석할 수 없습니다. 아래 상태 표시줄의 오류를 확인하세요."
+                    : String.IsNullOrEmpty(query) ? SearchHint : "일치하는 로그가 없습니다. 검색어나 필터를 바꿔 보세요.";
+                m_strSearchMark = result.Item4 == null && !String.IsNullOrEmpty(query) ? query : null;
+                m_bSearchMarkCase = caseSensitive;
+                m_searchMarkPattern = m_strSearchMark != null && useRegex ? LogReader.CreateRegex(query, caseSensitive) : null;
+                m_gridSearch.Invalidate(); m_gridSearch.LargeView.Invalidate();
 
-                m_lblStatus.Text = "파일 " + m_nFileCount.ToString("N0") + "개    전체 " + m_entries.Count.ToString("N0") + "줄    표시 " + m_visibleEntries.Count.ToString("N0") + "줄    시간 미인식 " + m_nMissingTimestampCount.ToString("N0") + "줄    INI: " + Path.GetFileName(m_strKeywordPath) + (m_bKeywordDirty ? " *" : "");
+                m_lblStatus.Text = "파일 " + m_nFileCount.ToString("N0") + "개  ·  전체 " + m_entries.Count.ToString("N0") + "줄  ·  표시 " + m_visibleEntries.Count.ToString("N0") + "줄  ·  시간 미인식 " + m_nMissingTimestampCount.ToString("N0") + "줄  ·  프리셋 " + Path.GetFileName(m_strKeywordPath) + (m_bKeywordDirty ? " *" : "");
                 if (result.Item4 != null)
                 {
                     m_lblSearchCount.Text = "검색 결과 · 정규식 오류";
@@ -808,6 +846,7 @@ namespace LogAnalyzer
                     m_lblStatus.Text = "조회 실패 · " + ex.Message;
                     m_searchEntries = new List<LogEntry>(); DisplayGridPage(m_gridSearch, 1);
                     m_lblSearchCount.Text = "검색 결과 · 오류";
+                    m_gridSearch.EmptyText = "조회에 실패했습니다. 아래 상태 표시줄의 오류를 확인하세요."; m_gridSearch.Invalidate();
                 }
             }
             finally
@@ -893,6 +932,12 @@ namespace LogAnalyzer
         // 원래 휠 델타와 키 상태를 대상 창의 기본 입력 처리기에 전달한다.
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+
+        // 입력란이 비어 있을 때 회색 안내 문구(cue banner)를 표시한다.
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, string lParam);
+        private const int SetCueBanner = 0x1501;
+        private const string SearchHint = "검색어를 입력하면 일치하는 로그가 여기에 표시됩니다.";
 
         // 페이지 끝에 다음 화면의 행을 겹쳐 두어 휠로 경계를 넘을 때도 행이 이어지게 한다.
         private void DisplayGridPage(LogGrid grid, int requestedPage, int localTop = 0)
@@ -1225,6 +1270,34 @@ namespace LogAnalyzer
             return colors;
         }
 
+        // 검색 결과 뷰어에서 현재 검색어와 일치하는 부분을 노란색으로 표시한다.
+        private void MarkSearchMatches(string text, Color[] colors)
+        {
+            Color markColor = Color.FromArgb(255, 229, 138);
+            if (m_searchMarkPattern != null)
+            {
+                try
+                {
+                    foreach (Match match in m_searchMarkPattern.Matches(text))
+                    {
+                        if (match.Length == 0) { continue; }
+                        for (int index = match.Index; index < Math.Min(colors.Length, match.Index + match.Length); index++) { colors[index] = markColor; }
+                    }
+                }
+                catch (RegexMatchTimeoutException) { }
+                return;
+            }
+            StringComparison comparison = m_bSearchMarkCase ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+            int start = 0;
+            while (start < colors.Length)
+            {
+                int found = text.IndexOf(m_strSearchMark, start, comparison);
+                if (found < 0 || found >= colors.Length) { break; }
+                for (int index = found; index < Math.Min(colors.Length, found + m_strSearchMark.Length); index++) { colors[index] = markColor; }
+                start = found + m_strSearchMark.Length;
+            }
+        }
+
         // 표의 컬럼 배치를 유지하면서 보이는 로그 셀에만 부분 강조와 문자열 선택을 그린다.
         private void PaintLogText(object sender, DataGridViewCellPaintingEventArgs e)
         {
@@ -1256,8 +1329,10 @@ namespace LogAnalyzer
             graphics.SetClip(visible);
             TextRenderer.DrawText(graphics, text, font, origin, foreground, LogTextFlags);
             bool selected = grid == m_textSelectionGrid && entry == m_selectedTextEntry && m_nTextAnchor != m_nTextCaret;
-            if (m_chkTaskColors.Checked || (!selected && m_highlights.Count == 0)) { graphics.Restore(state); return; }
-            Color[] colors = LogHighlightColors(fullText, visibleLength);
+            bool mark = grid == m_gridSearch && m_strSearchMark != null;
+            if (!mark && (m_chkTaskColors.Checked || (!selected && m_highlights.Count == 0))) { graphics.Restore(state); return; }
+            Color[] colors = m_chkTaskColors.Checked ? new Color[visibleLength] : LogHighlightColors(fullText, visibleLength);
+            if (mark) { MarkSearchMatches(fullText, colors); }
             if (selected)
             {
                 for (int index = Math.Min(m_nTextAnchor, m_nTextCaret); index < Math.Min(colors.Length, Math.Max(m_nTextAnchor, m_nTextCaret)); index++) { colors[index] = SystemColors.Highlight; }
@@ -1521,7 +1596,7 @@ namespace LogAnalyzer
             {
                 int ruleIndex = index;
                 KeywordRule rule = m_rules[index];
-                CheckBox chip = new ViewerToggle { Text = (index + 1) + ". " + rule.Text, Font = Font, Checked = rule.Enabled, Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, AutoSize = false, Width = TextRenderer.MeasureText((index + 1) + ". " + rule.Text, Font).Width + 42, Height = 30, Margin = new Padding(0, 2, 8, 2), Padding = new Padding(8, 2, 8, 2), Tag = rule.Color, UseVisualStyleBackColor = false };
+                CheckBox chip = new ViewerToggle { Text = (index + 1) + ". " + rule.Text, Font = Font, Checked = rule.Enabled, Appearance = Appearance.Button, FlatStyle = FlatStyle.Flat, AutoSize = false, Width = TextRenderer.MeasureText((index + 1) + ". " + rule.Text, Font).Width + 38, Height = 28, Margin = new Padding(0, 3, 6, 3), Padding = new Padding(8, 2, 8, 2), Tag = rule.Color, UseVisualStyleBackColor = false };
                 chip.CheckedChanged += delegate
                 {
                     List<KeywordRule> changed = m_rules.Select(delegate(KeywordRule item) { return new KeywordRule { Text = item.Text, Enabled = item.Enabled, CaseSensitive = item.CaseSensitive, Color = item.Color, CheckIntervals = item.CheckIntervals, ExpectedIntervalMs = item.ExpectedIntervalMs, TolerancePercent = item.TolerancePercent, LinkedKeywordNumber = item.LinkedKeywordNumber, LinkedExpectedIntervalMs = item.LinkedExpectedIntervalMs, LinkedTolerancePercent = item.LinkedTolerancePercent }; }).ToList();
@@ -1841,6 +1916,57 @@ namespace LogAnalyzer
         protected override void OnPaint(PaintEventArgs e)
         {
             Theme.DrawAction(this, e.Graphics, false, IconCode, FlatAppearance.BorderColor, Focused && ShowFocusCues);
+        }
+    }
+
+    // "제목 · 개수 · 상태" 텍스트를 제목과 둥근 배지로 나눠 그린다. Text 값은 그대로 둔다.
+    internal sealed class HeadingLabel : Label
+    {
+        private const string Separator = " · ";
+
+        public HeadingLabel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            string[] parts = Text.Split(new string[] { Separator }, StringSplitOptions.None);
+            if (parts.Length < 2) { base.OnPaint(e); return; }
+            Graphics graphics = e.Graphics;
+            graphics.Clear(BackColor);
+            TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding;
+            int x = Padding.Left;
+            int titleWidth = TextRenderer.MeasureText(graphics, parts[0], Font, Size.Empty, flags).Width;
+            TextRenderer.DrawText(graphics, parts[0], Font, new Rectangle(x, 0, Math.Max(0, Width - x), Height), ForeColor, flags | TextFormatFlags.EndEllipsis);
+            x += titleWidth + 8;
+            bool dark = BackColor.GetBrightness() < 0.3F;
+            float scale = graphics.DpiX / 96F;
+            using (Font badgeFont = new Font(Font.FontFamily, 9F, FontStyle.Regular))
+            {
+                for (int index = 1; index < parts.Length; index++)
+                {
+                    bool warn = parts[index].Contains("이상") || parts[index].Contains("오류");
+                    Color fill = warn ? (dark ? Color.FromArgb(58, 46, 26) : Color.FromArgb(255, 241, 219)) : Theme.Mix(BackColor, ForeColor, 0.08);
+                    Color text = warn ? (dark ? Color.FromArgb(240, 179, 90) : Color.FromArgb(154, 91, 0)) : Theme.Mix(BackColor, ForeColor, 0.7);
+                    Size size = TextRenderer.MeasureText(graphics, parts[index], badgeFont, Size.Empty, flags);
+                    int width = size.Width + (int)(16 * scale);
+                    int height = (int)(22 * scale);
+                    if (x + width > Width - 4) { break; }
+                    Rectangle pill = new Rectangle(x, (Height - height) / 2, width, height);
+                    using (GraphicsPath path = new GraphicsPath())
+                    {
+                        path.AddArc(pill.Left, pill.Top, height, height, 90, 180);
+                        path.AddArc(pill.Right - height, pill.Top, height, height, 270, 180);
+                        path.CloseFigure();
+                        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                        using (SolidBrush brush = new SolidBrush(fill)) { graphics.FillPath(brush, path); }
+                    }
+                    TextRenderer.DrawText(graphics, parts[index], badgeFont, pill, text, flags | TextFormatFlags.HorizontalCenter);
+                    x += width + 6;
+                }
+            }
         }
     }
 

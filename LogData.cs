@@ -324,7 +324,7 @@ namespace LogAnalyzer
         }
 
         // 사용자 정규식에 시간 제한을 적용해 잘못된 패턴의 무한 처리를 방지한다.
-        private static Regex CreateRegex(string pattern, bool caseSensitive)
+        internal static Regex CreateRegex(string pattern, bool caseSensitive)
         {
             RegexOptions options = RegexOptions.CultureInvariant;
             if (!caseSensitive) { options |= RegexOptions.IgnoreCase; }
